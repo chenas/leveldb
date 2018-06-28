@@ -60,7 +60,7 @@ class ReverseKeyComparator : public Comparator {
     *key = Reverse(s);
   }
 };
-}
+}  // namespace
 static ReverseKeyComparator reverse_key_comparator;
 
 static void Increment(const Comparator* cmp, std::string* key) {
@@ -85,7 +85,7 @@ struct STLLessThan {
     return cmp->Compare(Slice(a), Slice(b)) < 0;
   }
 };
-}
+}  // namespace
 
 class StringSink: public WritableFile {
  public:
@@ -168,13 +168,11 @@ class Constructor {
   // Construct the data structure from the data in "data"
   virtual Status FinishImpl(const Options& options, const KVMap& data) = 0;
 
-  virtual size_t NumBytes() const = 0;
-
   virtual Iterator* NewIterator() const = 0;
 
   virtual const KVMap& data() { return data_; }
 
-  virtual DB* db() const { return NULL; }  // Overridden in DBConstructor
+  virtual DB* db() const { return nullptr; }  // Overridden in DBConstructor
 
  private:
   KVMap data_;
@@ -185,14 +183,13 @@ class BlockConstructor: public Constructor {
   explicit BlockConstructor(const Comparator* cmp)
       : Constructor(cmp),
         comparator_(cmp),
-        block_size_(-1),
-        block_(NULL) { }
+        block_(nullptr) { }
   ~BlockConstructor() {
     delete block_;
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     delete block_;
-    block_ = NULL;
+    block_ = nullptr;
     BlockBuilder builder(&options);
 
     for (KVMap::const_iterator it = data.begin();
@@ -201,22 +198,21 @@ class BlockConstructor: public Constructor {
       builder.Add(it->first, it->second);
     }
     // Open the block
-    Slice block_data = builder.Finish();
-    block_size_ = block_data.size();
-    char* block_data_copy = new char[block_size_];
-    memcpy(block_data_copy, block_data.data(), block_size_);
-    block_ = new Block(block_data_copy, block_size_);
+    data_ = builder.Finish().ToString();
+    BlockContents contents;
+    contents.data = data_;
+    contents.cachable = false;
+    contents.heap_allocated = false;
+    block_ = new Block(contents);
     return Status::OK();
   }
-  virtual size_t NumBytes() const { return block_size_; }
-
   virtual Iterator* NewIterator() const {
     return block_->NewIterator(comparator_);
   }
 
  private:
   const Comparator* comparator_;
-  int block_size_;
+  std::string data_;
   Block* block_;
 
   BlockConstructor();
@@ -226,7 +222,7 @@ class TableConstructor: public Constructor {
  public:
   TableConstructor(const Comparator* cmp)
       : Constructor(cmp),
-        source_(NULL), table_(NULL) {
+        source_(nullptr), table_(nullptr) {
   }
   ~TableConstructor() {
     Reset();
@@ -253,7 +249,6 @@ class TableConstructor: public Constructor {
     table_options.comparator = options.comparator;
     return Table::Open(table_options, source_, sink.contents().size(), &table_);
   }
-  virtual size_t NumBytes() const { return source_->Size(); }
 
   virtual Iterator* NewIterator() const {
     return table_->NewIterator(ReadOptions());
@@ -267,8 +262,8 @@ class TableConstructor: public Constructor {
   void Reset() {
     delete table_;
     delete source_;
-    table_ = NULL;
-    source_ = NULL;
+    table_ = nullptr;
+    source_ = nullptr;
   }
 
   StringSource* source_;
@@ -342,10 +337,6 @@ class MemTableConstructor: public Constructor {
     }
     return Status::OK();
   }
-  virtual size_t NumBytes() const {
-    return memtable_->ApproximateMemoryUsage();
-  }
-
   virtual Iterator* NewIterator() const {
     return new KeyConvertingIterator(memtable_->NewIterator());
   }
@@ -360,7 +351,7 @@ class DBConstructor: public Constructor {
   explicit DBConstructor(const Comparator* cmp)
       : Constructor(cmp),
         comparator_(cmp) {
-    db_ = NULL;
+    db_ = nullptr;
     NewDB();
   }
   ~DBConstructor() {
@@ -368,7 +359,7 @@ class DBConstructor: public Constructor {
   }
   virtual Status FinishImpl(const Options& options, const KVMap& data) {
     delete db_;
-    db_ = NULL;
+    db_ = nullptr;
     NewDB();
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -379,13 +370,6 @@ class DBConstructor: public Constructor {
     }
     return Status::OK();
   }
-  virtual size_t NumBytes() const {
-    Range r("", "\xff\xff");
-    uint64_t size;
-    db_->GetApproximateSizes(&r, 1, &size);
-    return size;
-  }
-
   virtual Iterator* NewIterator() const {
     return db_->NewIterator(ReadOptions());
   }
@@ -452,11 +436,11 @@ static const int kNumTestArgs = sizeof(kTestArgList) / sizeof(kTestArgList[0]);
 
 class Harness {
  public:
-  Harness() : constructor_(NULL) { }
+  Harness() : constructor_(nullptr) { }
 
   void Init(const TestArgs& args) {
     delete constructor_;
-    constructor_ = NULL;
+    constructor_ = nullptr;
     options_ = Options();
 
     options_.block_restart_interval = args.restart_interval;
@@ -652,13 +636,43 @@ class Harness {
     }
   }
 
-  // Returns NULL if not running against a DB
+  // Returns nullptr if not running against a DB
   DB* db() const { return constructor_->db(); }
 
  private:
   Options options_;
   Constructor* constructor_;
 };
+
+// Test empty table/block.
+TEST(Harness, Empty) {
+  for (int i = 0; i < kNumTestArgs; i++) {
+    Init(kTestArgList[i]);
+    Random rnd(test::RandomSeed() + 1);
+    Test(&rnd);
+  }
+}
+
+// Special test for a block with no restart entries.  The C++ leveldb
+// code never generates such blocks, but the Java version of leveldb
+// seems to.
+TEST(Harness, ZeroRestartPointsInBlock) {
+  char data[sizeof(uint32_t)];
+  memset(data, 0, sizeof(data));
+  BlockContents contents;
+  contents.data = Slice(data, sizeof(data));
+  contents.cachable = false;
+  contents.heap_allocated = false;
+  Block block(contents);
+  Iterator* iter = block.NewIterator(BytewiseComparator());
+  iter->SeekToFirst();
+  ASSERT_TRUE(!iter->Valid());
+  iter->SeekToLast();
+  ASSERT_TRUE(!iter->Valid());
+  iter->Seek("foo");
+  ASSERT_TRUE(!iter->Valid());
+  delete iter;
+}
 
 // Test the empty key
 TEST(Harness, SimpleEmptyKey) {
@@ -809,7 +823,7 @@ TEST(TableTest, ApproximateOffsetOfPlain) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k05"),  210000, 211000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k06"),  510000, 511000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k07"),  510000, 511000));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),  610000, 611000));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),  610000, 612000));
 
 }
 
@@ -839,15 +853,23 @@ TEST(TableTest, ApproximateOffsetOfCompressed) {
   options.compression = kSnappyCompression;
   c.Finish(options, &keys, &kvmap);
 
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"),       0,      0));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"),    2000,   3000));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"),    2000,   3000));
-  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),    4000,   6000));
+  // Expected upper and lower bounds of space used by compressible strings.
+  static const int kSlop = 1000;  // Compressor effectiveness varies.
+  const int expected = 2500;  // 10000 * compression ratio (0.25)
+  const int min_z = expected - kSlop;
+  const int max_z = expected + kSlop;
+
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"), 0, kSlop));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"), 0, kSlop));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k02"), 0, kSlop));
+  // Have now emitted a large compressible string, so adjust expected offset.
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"), min_z, max_z));
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"), min_z, max_z));
+  // Have now emitted two large compressible strings, so adjust expected offset.
+  ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"), 2 * min_z, 2 * max_z));
 }
 
-}
+}  // namespace leveldb
 
 int main(int argc, char** argv) {
   return leveldb::test::RunAllTests();

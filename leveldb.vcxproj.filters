@@ -24,9 +24,6 @@
     <ClCompile Include="db\dbformat.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="db\db_bench.cc">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="db\db_impl.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -133,6 +130,21 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="util\win_logger.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="table\filter_block.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="db\dumpfile.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="db\leveldbutil.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="util\bloom.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="util\filter_policy.cc">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -282,6 +294,18 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="util\win_logger.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="table\filter_block.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\leveldb\filter_policy.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\leveldb\export.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\leveldb\dumpfile.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

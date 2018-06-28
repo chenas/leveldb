@@ -31,13 +31,13 @@
 #ifndef STORAGE_LEVELDB_PORT_PORT_WIN_H_
 #define STORAGE_LEVELDB_PORT_PORT_WIN_H_
 
-#define snprintf _snprintf
 #define close _close
 #define fread_unlocked _fread_nolock
 
 #include <string>
 
 #include <stdint.h>
+#include<mutex>
 
 namespace leveldb {
 namespace port {
@@ -91,6 +91,19 @@ class CondVar {
   
 };
 
+// Thread-safe initialization.
+// Used as follows:
+//      static port::OnceType init_control = LEVELDB_ONCE_INIT;
+//      static void Initializer() { ... do something ...; }
+//      ...
+//      port::InitOnce(&init_control, &Initializer);
+//typedef intptr_t OnceType;
+using OnceType = std::once_flag;
+#define LEVELDB_ONCE_INIT {}
+inline void InitOnce(port::OnceType* once, void(*initializer)()) {
+	std::call_once(*once, *initializer);
+}
+
 // Storage for a lock-free pointer
 class AtomicPointer {
  private:
@@ -142,7 +155,15 @@ inline bool GetHeapProfile(void (*func)(void*, const char*, int), void* arg) {
   return false;
 }
 
+inline uint32_t AcceleratedCRC32C(uint32_t crc, const char* buf, size_t size) {
+#if HAVE_CRC32C
+	return ::crc32c::Extend(crc, reinterpret_cast<const uint8_t*>(buf), size);
+#else
+	return 0;
+#endif  // HAVE_CRC32C
 }
 }
+}
+
 
 #endif  // STORAGE_LEVELDB_PORT_PORT_WIN_H_

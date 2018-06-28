@@ -119,6 +119,14 @@ void CondVar::SignalAll() {
   wait_mtx_.Unlock();
 }
 
+//using OnceType = std::once_flag;
+//#define LEVELDB_ONCE_INIT {}
+//
+//// Thinly wraps std::call_once.
+//inline void InitOnce(OnceType* once, void(*initializer)()) {
+//	std::call_once(*once, *initializer);
+//}
+
 AtomicPointer::AtomicPointer(void* v) {
   Release_Store(v);
 }

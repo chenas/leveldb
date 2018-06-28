@@ -14,7 +14,6 @@
 namespace leveldb {
 
 class InternalKeyComparator;
-class Mutex;
 class MemTableIterator;
 
 class MemTable {
@@ -36,10 +35,7 @@ class MemTable {
   }
 
   // Returns an estimate of the number of bytes of data in use by this
-  // data structure.
-  //
-  // REQUIRES: external synchronization to prevent simultaneous
-  // operations on the same MemTable.
+  // data structure. It is safe to call when MemTable is being modified.
   size_t ApproximateMemoryUsage();
 
   // Return an iterator that yields the contents of the memtable.
@@ -86,6 +82,6 @@ class MemTable {
   void operator=(const MemTable&);
 };
 
-}
+}  // namespace leveldb
 
 #endif  // STORAGE_LEVELDB_DB_MEMTABLE_H_

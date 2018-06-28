@@ -4,14 +4,18 @@
 
 #include "helpers/memenv/memenv.h"
 
+#include <string.h>
+
+#include <limits>
+#include <map>
+#include <string>
+#include <vector>
+
 #include "leveldb/env.h"
 #include "leveldb/status.h"
 #include "port/port.h"
+#include "port/thread_annotations.h"
 #include "util/mutexlock.h"
-#include <map>
-#include <string.h>
-#include <string>
-#include <vector>
 
 namespace leveldb {
 
@@ -55,14 +59,15 @@ class FileState {
     }
     const uint64_t available = size_ - offset;
     if (n > available) {
-      n = available;
+      n = static_cast<size_t>(available);
     }
     if (n == 0) {
       *result = Slice();
       return Status::OK();
     }
 
-    size_t block = offset / kBlockSize;
+    assert(offset / kBlockSize <= std::numeric_limits<size_t>::max());
+    size_t block = static_cast<size_t>(offset / kBlockSize);
     size_t block_offset = offset % kBlockSize;
 
     if (n <= kBlockSize - block_offset) {
@@ -134,7 +139,7 @@ class FileState {
   void operator=(const FileState&);
 
   port::Mutex refs_mutex_;
-  int refs_;  // Protected by refs_mutex_;
+  int refs_ GUARDED_BY(refs_mutex_);
 
   // The following fields are not protected by any mutex. They are only mutable
   // while the file is being written, and concurrent access is not allowed
@@ -167,7 +172,7 @@ class SequentialFileImpl : public SequentialFile {
     if (pos_ > file_->Size()) {
       return Status::IOError("pos_ > file_->Size()");
     }
-    const size_t available = file_->Size() - pos_;
+    const uint64_t available = file_->Size() - pos_;
     if (n > available) {
       n = available;
     }
@@ -177,7 +182,7 @@ class SequentialFileImpl : public SequentialFile {
 
  private:
   FileState* file_;
-  size_t pos_;
+  uint64_t pos_;
 };
 
 class RandomAccessFileImpl : public RandomAccessFile {
@@ -221,6 +226,11 @@ class WritableFileImpl : public WritableFile {
   FileState* file_;
 };
 
+class NoOpLogger : public Logger {
+ public:
+  virtual void Logv(const char* format, va_list ap) { }
+};
+
 class InMemoryEnv : public EnvWrapper {
  public:
   explicit InMemoryEnv(Env* base_env) : EnvWrapper(base_env) { }
@@ -236,7 +246,7 @@ class InMemoryEnv : public EnvWrapper {
                                    SequentialFile** result) {
     MutexLock lock(&mutex_);
     if (file_map_.find(fname) == file_map_.end()) {
-      *result = NULL;
+      *result = nullptr;
       return Status::IOError(fname, "File not found");
     }
 
@@ -248,7 +258,7 @@ class InMemoryEnv : public EnvWrapper {
                                      RandomAccessFile** result) {
     MutexLock lock(&mutex_);
     if (file_map_.find(fname) == file_map_.end()) {
-      *result = NULL;
+      *result = nullptr;
       return Status::IOError(fname, "File not found");
     }
 
@@ -267,6 +277,19 @@ class InMemoryEnv : public EnvWrapper {
     file->Ref();
     file_map_[fname] = file;
 
+    *result = new WritableFileImpl(file);
+    return Status::OK();
+  }
+
+  virtual Status NewAppendableFile(const std::string& fname,
+                                   WritableFile** result) {
+    MutexLock lock(&mutex_);
+    FileState** sptr = &file_map_[fname];
+    FileState* file = *sptr;
+    if (file == nullptr) {
+      file = new FileState();
+      file->Ref();
+    }
     *result = new WritableFileImpl(file);
     return Status::OK();
   }
@@ -293,7 +316,8 @@ class InMemoryEnv : public EnvWrapper {
     return Status::OK();
   }
 
-  void DeleteFileInternal(const std::string& fname) {
+  void DeleteFileInternal(const std::string& fname)
+      EXCLUSIVE_LOCKS_REQUIRED(mutex_) {
     if (file_map_.find(fname) == file_map_.end()) {
       return;
     }
@@ -358,17 +382,22 @@ class InMemoryEnv : public EnvWrapper {
     return Status::OK();
   }
 
+  virtual Status NewLogger(const std::string& fname, Logger** result) {
+    *result = new NoOpLogger;
+    return Status::OK();
+  }
+
  private:
   // Map from filenames to FileState objects, representing a simple file system.
   typedef std::map<std::string, FileState*> FileSystem;
   port::Mutex mutex_;
-  FileSystem file_map_;  // Protected by mutex_.
+  FileSystem file_map_ GUARDED_BY(mutex_);
 };
 
-}
+}  // namespace
 
 Env* NewMemEnv(Env* base_env) {
   return new InMemoryEnv(base_env);
 }
 
-}
+}  // namespace leveldb

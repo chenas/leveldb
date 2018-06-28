@@ -68,6 +68,9 @@ static bool FLAGS_use_existing_db = false;
 // is off.
 static bool FLAGS_compression = true;
 
+// Use the db with the following name.
+static const char* FLAGS_db = nullptr;
+
 inline
 static void DBSynchronize(kyotocabinet::TreeDB* db_)
 {
@@ -124,7 +127,7 @@ static Slice TrimSpace(Slice s) {
   return Slice(s.data() + start, limit - start);
 }
 
-}
+}  // namespace
 
 class Benchmark {
  private:
@@ -180,18 +183,18 @@ class Benchmark {
             kyotocabinet::VERSION, kyotocabinet::LIBVER, kyotocabinet::LIBREV);
 
 #if defined(__linux)
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
     fprintf(stderr, "Date:           %s", ctime(&now));  // ctime() adds newline
 
     FILE* cpuinfo = fopen("/proc/cpuinfo", "r");
-    if (cpuinfo != NULL) {
+    if (cpuinfo != nullptr) {
       char line[1000];
       int num_cpus = 0;
       std::string cpu_type;
       std::string cache_size;
-      while (fgets(line, sizeof(line), cpuinfo) != NULL) {
+      while (fgets(line, sizeof(line), cpuinfo) != nullptr) {
         const char* sep = strchr(line, ':');
-        if (sep == NULL) {
+        if (sep == nullptr) {
           continue;
         }
         Slice key = TrimSpace(Slice(line, sep - 1 - line));
@@ -286,17 +289,22 @@ class Benchmark {
   };
 
   Benchmark()
-  : db_(NULL),
+  : db_(nullptr),
     num_(FLAGS_num),
     reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
     bytes_(0),
     rand_(301) {
     std::vector<std::string> files;
-    Env::Default()->GetChildren("/tmp", &files);
+    std::string test_dir;
+    Env::Default()->GetTestDirectory(&test_dir);
+    Env::Default()->GetChildren(test_dir.c_str(), &files);
     if (!FLAGS_use_existing_db) {
       for (int i = 0; i < files.size(); i++) {
         if (Slice(files[i]).starts_with("dbbench_polyDB")) {
-          Env::Default()->DeleteFile("/tmp/" + files[i]);
+          std::string file_name(test_dir);
+          file_name += "/";
+          file_name += files[i];
+          Env::Default()->DeleteFile(file_name.c_str());
         }
       }
     }
@@ -313,12 +321,12 @@ class Benchmark {
     Open(false);
 
     const char* benchmarks = FLAGS_benchmarks;
-    while (benchmarks != NULL) {
+    while (benchmarks != nullptr) {
       const char* sep = strchr(benchmarks, ',');
       Slice name;
-      if (sep == NULL) {
+      if (sep == nullptr) {
         name = benchmarks;
-        benchmarks = NULL;
+        benchmarks = nullptr;
       } else {
         name = Slice(benchmarks, sep - benchmarks);
         benchmarks = sep + 1;
@@ -330,7 +338,7 @@ class Benchmark {
       bool write_sync = false;
       if (name == Slice("fillseq")) {
         Write(write_sync, SEQUENTIAL, FRESH, num_, FLAGS_value_size, 1);
-        
+        DBSynchronize(db_);
       } else if (name == Slice("fillrandom")) {
         Write(write_sync, RANDOM, FRESH, num_, FLAGS_value_size, 1);
         DBSynchronize(db_);
@@ -379,14 +387,18 @@ class Benchmark {
 
  private:
     void Open(bool sync) {
-    assert(db_ == NULL);
+    assert(db_ == nullptr);
 
     // Initialize db_
     db_ = new kyotocabinet::TreeDB();
     char file_name[100];
     db_num_++;
-    snprintf(file_name, sizeof(file_name), "/tmp/dbbench_polyDB-%d.kct",
-                               db_num_);
+    std::string test_dir;
+    Env::Default()->GetTestDirectory(&test_dir);
+    snprintf(file_name, sizeof(file_name),
+             "%s/dbbench_polyDB-%d.kct",
+             test_dir.c_str(),
+             db_num_);
 
     // Create tuning options and open the database
     int open_options = kyotocabinet::PolyDB::OWRITER |
@@ -418,7 +430,7 @@ class Benchmark {
         return;
       }
       delete db_;
-      db_ = NULL;
+      db_ = nullptr;
       Open(sync);
       Start();  // Do not count time taken to destroy/open
     }
@@ -467,9 +479,10 @@ class Benchmark {
   }
 };
 
-}
+}  // namespace leveldb
 
 int main(int argc, char** argv) {
+  std::string default_db_path;
   for (int i = 1; i < argc; i++) {
     double d;
     int n;
@@ -494,10 +507,19 @@ int main(int argc, char** argv) {
     } else if (sscanf(argv[i], "--compression=%d%c", &n, &junk) == 1 &&
                (n == 0 || n == 1)) {
       FLAGS_compression = (n == 1) ? true : false;
+    } else if (strncmp(argv[i], "--db=", 5) == 0) {
+      FLAGS_db = argv[i] + 5;
     } else {
       fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       exit(1);
     }
+  }
+
+  // Choose a location for the test database if none given with --db=<path>
+  if (FLAGS_db == nullptr) {
+      leveldb::Env::Default()->GetTestDirectory(&default_db_path);
+      default_db_path += "/dbbench";
+      FLAGS_db = default_db_path.c_str();
   }
 
   leveldb::Benchmark benchmark;

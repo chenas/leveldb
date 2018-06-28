@@ -11,13 +11,14 @@
 // porting to a new platform, see "port_example.h" for documentation
 // of what the new port_<platform>.h file must provide.
 #if defined(LEVELDB_PLATFORM_POSIX)
-#  include "port/port_posix.h"
+#  include "port/port_stdcxx.h"
 #elif defined(LEVELDB_PLATFORM_CHROMIUM)
 #  include "port/port_chromium.h"
 #elif defined(LEVELDB_PLATFORM_ANDROID)
 #  include "port/port_android.h"
 #elif defined(_MSC_VER)
 #  include "port/port_win.h"
+typedef uint32_t ssize_t;
 #endif
 
 #endif  // STORAGE_LEVELDB_PORT_PORT_H_
