@@ -9,3 +9,4 @@ build_config.mk
 *.so
 *.so.*
 *_test
+.vs/*
